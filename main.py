@@ -16,7 +16,7 @@ import os
 from data_generator import generate_target_distribution
 from RBM import RBMModel
 from qGAN import QuantumGAN
-from visualization import plot_unified_comparison, plot_individual_qgan_metrics, plot_individual_rbm_results
+from visualization import plot_unified_comparison
 
 
 def main():
@@ -81,18 +81,6 @@ def main():
         rbm_results=rbm_results,
         qgan_result=qgan_result,
         output_path='media/unified_comparison.png'
-    )
-    
-    # Individual plots
-    plot_individual_rbm_results(
-        target_probabilities=target_probabilities,
-        rbm_results=rbm_results,
-        output_path='media/rbm_comparison.png'
-    )
-    
-    plot_individual_qgan_metrics(
-        qgan_result=qgan_result,
-        output_dir='media'
     )
     
     # 5. Print final summary

@@ -49,6 +49,8 @@ class QuantumGAN:
         # Define two learnable parameters
         theta1 = Parameter('θ₁')
         theta2 = Parameter('θ₂')
+        sigma1 = Parameter('σ₁')
+        sigma2 = Parameter('σ₂')
         
         # Create a 2-qubit quantum circuit
         generator_circuit = QuantumCircuit(2)
@@ -59,14 +61,21 @@ class QuantumGAN:
         
         # Layer 2: Entanglement
         generator_circuit.cx(0, 1)
+
+        generator_circuit.rx(sigma1, 0)
+        generator_circuit.rx(sigma2, 1)
+
+        generator_circuit.cx(1, 0)
         
+        print(generator_circuit.draw(output="text"))
+
         # Create quantum neural network
         sampler = Sampler()
         qnn = SamplerQNN(
             circuit=generator_circuit,
             sampler=sampler,
             input_params=[], 
-            weight_params=[theta1, theta2],
+            weight_params=[theta1, theta2, sigma1, sigma2],
             sparse=False
         )
         
