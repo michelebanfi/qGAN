@@ -54,7 +54,7 @@ def main():
         target_probabilities=target_probabilities,
         learning_rate=0.01
     )
-    qgan.train(num_epochs=100, verbose=True)
+    qgan.train(num_epochs=200, verbose=True)
     
     # Get qGAN results
     qgan_distribution = qgan.get_generated_distribution()
@@ -97,6 +97,31 @@ def main():
     print(f"  KL={qgan_kl:.6f}")
     print(f"  Distribution={qgan_distribution}")
     print(f"  Final Generator Loss={qgan.g_losses[-1]:.6f}")
+
+    # Additional: print and save parameter matrices/tensors for comparison
+    print("\nRBM learned parameters (per hidden size):")
+    for h in sorted(rbm_results.keys()):
+        res = rbm_results[h]
+        print(f"\n  H={h}")
+        print(f"    W shape: {res['W'].shape}\n{res['W']}")
+        print(f"    visible_bias: {res['visible_bias']}")
+        print(f"    hidden_bias: {res['hidden_bias']}")
+        # Save to disk
+        np.save(f"media/rbm_W_H{h}.npy", res['W'])
+        np.save(f"media/rbm_visible_bias_H{h}.npy", res['visible_bias'])
+        np.save(f"media/rbm_hidden_bias_H{h}.npy", res['hidden_bias'])
+
+    # qGAN generator weights and unitary
+    try:
+        g_weights = qgan.get_generator_weights().numpy()
+        U = qgan.get_generator_unitary()
+        print("\nqGAN generator weights (θ₁, θ₂, σ₁, σ₂):", g_weights)
+        print("qGAN generator unitary U (4x4 complex):\n", U)
+        # Save to disk
+        np.save("media/qgan_weights.npy", g_weights)
+        np.save("media/qgan_unitary.npy", U)
+    except Exception as e:
+        print("Warning: could not extract qGAN unitary due to:", e)
     
     print("\n" + "=" * 60)
     print("All outputs saved to 'media/' directory")

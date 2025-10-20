@@ -119,10 +119,15 @@ class RBMModel:
             kl_div = kl_divergence_numpy(self.target_probabilities, P_model)
             n_params = (self.N_V * n_hidden) + self.N_V + n_hidden
             
+            # Store learned parameters for inspection/comparison as well
+            # W follows the energy E(v,h) = - v^T W h - b^T v - c^T h
             self.results[n_hidden] = {
                 'P_model': P_model,
                 'KL': kl_div,
-                'Params': n_params
+                'Params': n_params,
+                'W': rbm.components_.T.copy(),                # shape (n_visible, n_hidden)
+                'visible_bias': rbm.intercept_visible_.copy(),  # shape (n_visible,)
+                'hidden_bias': rbm.intercept_hidden_.copy()     # shape (n_hidden,)
             }
             
             if verbose:

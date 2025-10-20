@@ -8,6 +8,7 @@ from qiskit.primitives import StatevectorSampler as Sampler
 from qiskit.circuit import QuantumCircuit, Parameter
 from qiskit_machine_learning.connectors import TorchConnector
 from qiskit_machine_learning.neural_networks import SamplerQNN
+from qiskit.quantum_info import Operator
 
 
 class QuantumGAN:
@@ -45,41 +46,70 @@ class QuantumGAN:
         self.kl_divergences = []
         
     def _build_generator(self):
-        """Build the quantum generator circuit."""
-        # Define two learnable parameters
+        """Build the quantum generator circuit and wrap it as a Torch module."""
+        # Define learnable parameters
         theta1 = Parameter('θ₁')
         theta2 = Parameter('θ₂')
         sigma1 = Parameter('σ₁')
         sigma2 = Parameter('σ₂')
-        
-        # Create a 2-qubit quantum circuit
+
+        # Create a 2-qubit parameterized circuit
         generator_circuit = QuantumCircuit(2)
-        
-        # Layer 1: Parameterized Rotations
         generator_circuit.ry(theta1, 0)
         generator_circuit.ry(theta2, 1)
-        
-        # Layer 2: Entanglement
         generator_circuit.cx(0, 1)
-
         generator_circuit.rx(sigma1, 0)
         generator_circuit.rx(sigma2, 1)
-
         generator_circuit.cx(1, 0)
-        
-        print(generator_circuit.draw(output="text"))
 
-        # Create quantum neural network
+        # Keep references for later inspection
+        self._generator_circuit = generator_circuit
+        self._generator_params = [theta1, theta2, sigma1, sigma2]
+
+        # Create quantum neural network and Torch connector
         sampler = Sampler()
         qnn = SamplerQNN(
             circuit=generator_circuit,
             sampler=sampler,
-            input_params=[], 
+            input_params=[],
             weight_params=[theta1, theta2, sigma1, sigma2],
-            sparse=False
+            sparse=False,
         )
-        
         return TorchConnector(qnn)
+
+    def get_generator_weights(self):
+        """
+        Return current generator weights as a detached 1D torch tensor.
+        The order corresponds to [θ₁, θ₂, σ₁, σ₂].
+        """
+        # TorchConnector exposes trainable parameters via .weight or .weights depending on version
+        # Safely handle both
+        if hasattr(self.q_generator, 'weight'):
+            w = self.q_generator.weight
+        elif hasattr(self.q_generator, 'weights'):
+            w = self.q_generator.weights
+        else:
+            # Fallback: call once to trigger param creation then read ._weights
+            _ = self.q_generator()
+            w = getattr(self.q_generator, 'weight', getattr(self.q_generator, 'weights'))
+        return w.detach().flatten().cpu()
+
+    def get_generator_unitary(self):
+        """
+        Compute the 4x4 complex unitary matrix of the current parameterized generator circuit.
+        Returns a numpy.ndarray with dtype=complex128 representing the unitary acting on |00> input space.
+        Note: Requires qiskit's Operator to be available; uses parameter binding with current weights.
+        """
+        if not hasattr(self, '_generator_circuit'):
+            raise RuntimeError('Generator circuit not initialized yet.')
+        # Get current weights in the same order used when building the circuit
+        weights = self.get_generator_weights().numpy()
+        bind_dict = {p: float(val) for p, val in zip(self._generator_params, weights)}
+        # Use assign_parameters to bind the current weights
+        bound_circ = self._generator_circuit.assign_parameters(bind_dict)
+        # Compute unitary via quantum_info.Operator
+        U = Operator(bound_circ).data  # shape (4,4), complex
+        return U
     
     def _build_discriminator(self):
         """Build the classical discriminator network."""
