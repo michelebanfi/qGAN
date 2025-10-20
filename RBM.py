@@ -1,5 +1,4 @@
 import numpy as np
-import matplotlib.pyplot as plt
 from sklearn.neural_network import BernoulliRBM
 import itertools
 import warnings
@@ -7,7 +6,6 @@ import warnings
 # Set a seed for reproducibility
 np.random.seed(42)
 
-# === 1. Helper Functions ===
 
 def kl_divergence_numpy(P_data, P_model):
     """
@@ -58,100 +56,87 @@ def calculate_exact_probabilities(rbm, N_V):
     
     return P_v
 
-# === 2. Data Generation (Replicating the Qiskit setup) ===
-# This defines the target distribution the models should learn.
-num_samples = 1000
-mu, sigma = 1, 0.5
-samples = np.random.lognormal(mu, sigma, num_samples)
 
-mean = np.mean(samples)
-std = np.std(samples)
-min_val = np.min(samples)
-max_val = np.max(samples)
-
-# Define the bin edges as specified in the Qiskit script
-bin_edges = [min_val, mean - 0.5*std, mean, mean + 0.5*std, max_val]
-
-# Calculate the target probabilities
-counts, _ = np.histogram(samples, bins=bin_edges)
-target_probabilities = counts / np.sum(counts)
-print(f"Target Probabilities (P_data): {target_probabilities}\n")
-
-# === 3. RBM Training Data Preparation ===
-# RBMs train on samples (e.g., [0,0], [0,1]), not probabilities.
-N_V = 2 # Number of visible units
-N_RBM_TRAIN = 5000
-# The 4 possible states (00, 01, 10, 11)
-states = np.array([[0, 0], [0, 1], [1, 0], [1, 1]])
-# Generate indices based on the target probabilities
-sample_indices = np.random.choice(4, size=N_RBM_TRAIN, p=target_probabilities)
-# The training dataset
-X_train = states[sample_indices]
-
-# === 4. Training and Evaluation Loop ===
-
-hidden_units_configs = [1, 2, 3]
-results = {}
-
-# Suppress potential convergence warnings for cleaner output
-warnings.filterwarnings("ignore", category=UserWarning) 
-
-for n_hidden in hidden_units_configs:
-    print(f"Training RBM with H={n_hidden}...")
+class RBMModel:
+    """
+    Restricted Boltzmann Machine model wrapper.
+    """
     
-    # Initialize RBM
-    # Hyperparameters found to work well: LR=0.01, default batch_size=10.
-    rbm = BernoulliRBM(n_components=n_hidden, 
-                       learning_rate=0.01, 
-                       # batch_size=10, # Default value
-                       n_iter=200, # Number of epochs (iterations)
-                       verbose=0, 
-                       random_state=42)
+    def __init__(self, target_probabilities, hidden_units_configs=[1, 2, 3], 
+                 n_train_samples=5000, learning_rate=0.01, n_iter=200):
+        """
+        Initialize RBM model.
+        
+        Args:
+            target_probabilities (np.ndarray): Target distribution to learn
+            hidden_units_configs (list): List of hidden unit configurations to test
+            n_train_samples (int): Number of training samples
+            learning_rate (float): Learning rate for RBM
+            n_iter (int): Number of training iterations
+        """
+        self.target_probabilities = target_probabilities
+        self.hidden_units_configs = hidden_units_configs
+        self.n_train_samples = n_train_samples
+        self.learning_rate = learning_rate
+        self.n_iter = n_iter
+        self.N_V = 2  # Number of visible units
+        self.results = {}
+        
+    def _prepare_training_data(self):
+        """Prepare training data for RBM."""
+        states = np.array([[0, 0], [0, 1], [1, 0], [1, 1]])
+        sample_indices = np.random.choice(4, size=self.n_train_samples, p=self.target_probabilities)
+        return states[sample_indices]
     
-    # Train the RBM using Contrastive Divergence
-    rbm.fit(X_train)
+    def train(self, verbose=True):
+        """
+        Train RBM models with different hidden unit configurations.
+        
+        Args:
+            verbose (bool): Whether to print progress
+        """
+        X_train = self._prepare_training_data()
+        
+        # Suppress potential convergence warnings
+        warnings.filterwarnings("ignore", category=UserWarning)
+        
+        for n_hidden in self.hidden_units_configs:
+            if verbose:
+                print(f"Training RBM with H={n_hidden}...")
+            
+            # Initialize and train RBM
+            rbm = BernoulliRBM(
+                n_components=n_hidden,
+                learning_rate=self.learning_rate,
+                n_iter=self.n_iter,
+                verbose=0,
+                random_state=42
+            )
+            rbm.fit(X_train)
+            
+            # Evaluate the RBM
+            P_model = calculate_exact_probabilities(rbm, self.N_V)
+            kl_div = kl_divergence_numpy(self.target_probabilities, P_model)
+            n_params = (self.N_V * n_hidden) + self.N_V + n_hidden
+            
+            self.results[n_hidden] = {
+                'P_model': P_model,
+                'KL': kl_div,
+                'Params': n_params
+            }
+            
+            if verbose:
+                print(f"  Parameters: {n_params}")
+                print(f"  Learned Probabilities: {P_model}")
+                print(f"  KL Divergence: {kl_div:.6f}\n")
+        
+        warnings.filterwarnings("default", category=UserWarning)
     
-    # Evaluate the RBM exactly
-    P_model = calculate_exact_probabilities(rbm, N_V)
-    
-    # Calculate KL Divergence D_KL(P_data || P_model)
-    kl_div = kl_divergence_numpy(target_probabilities, P_model)
-    
-    # Calculate parameters
-    n_params = (N_V * n_hidden) + N_V + n_hidden
-    
-    results[n_hidden] = {'P_model': P_model, 'KL': kl_div, 'Params': n_params}
-    print(f"  Parameters: {n_params}")
-    print(f"  Learned Probabilities: {P_model}")
-    print(f"  KL Divergence: {kl_div:.6f}\n")
-
-warnings.filterwarnings("default", category=UserWarning)
-
-# === 5. Visualization ===
-
-fig, axes = plt.subplots(1, len(hidden_units_configs), figsize=(15, 5), sharey=True)
-fig.suptitle('RBM vs. Target Distribution Comparison', fontsize=16)
-
-bar_width = 0.35
-index = np.arange(4)
-labels = ['00', '01', '10', '11']
-
-for i, n_hidden in enumerate(hidden_units_configs):
-    ax = axes[i]
-    P_model = results[n_hidden]['P_model']
-    KL = results[n_hidden]['KL']
-    
-    ax.bar(index, target_probabilities, bar_width, label='Target (P_data)', color='k', alpha=0.7)
-    ax.bar(index + bar_width, P_model, bar_width, label=f'RBM (P_model)')
-    
-    ax.set_title(f'RBM H={n_hidden} (KL={KL:.6f})')
-    ax.set_xlabel('State')
-    if i == 0:
-        ax.set_ylabel('Probability')
-    ax.set_xticks(index + bar_width / 2)
-    ax.set_xticklabels(labels)
-    ax.legend()
-    ax.grid(axis='y', linestyle='--', alpha=0.7)
-
-plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-plt.savefig('rBM_vs_target_comparison.png')
+    def get_results(self):
+        """
+        Get training results.
+        
+        Returns:
+            dict: Dictionary containing results for each configuration
+        """
+        return self.results
