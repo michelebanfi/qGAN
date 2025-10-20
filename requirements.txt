@@ -1,0 +1,6 @@
+torch
+numpy<2
+qiskit
+qiskit-machine-learning
+matplotlib
+scikit-learn
